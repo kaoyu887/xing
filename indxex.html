@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Merry Christmas</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    touch-action: none;
+  }
+  canvas {
+    display: block;
+    background: #000;
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<script>
+/* =========================================================================
+ * 3D 旋转圣诞树（手机全屏自适应版）
+ * 螺旋灯带 + 填充粒子 / 地面光环 / 空中星点 / 树顶爱心 / 前景雪花
+ * ========================================================================= */
+
+// ================== 全局参数 ==================
+// 粒子数量倍率：想更密改成 1.0
+const SCALE = 0.5;
+const TREE_POINTS   = Math.round(50000 * SCALE);
+const GROUND_POINTS = Math.round(4000  * SCALE);
+const STAR_POINTS   = Math.round(1200  * SCALE);
+const HEART_POINTS  = Math.round(1000  * SCALE);
+const SNOW2D_POINTS = 10;
+
+// 相机参数 —— 俯视视角
+const CAM_DIST    = 13;
+const CAM_HEIGHT  = 6.0;
+const PITCH       = -0.25;
+const TREE_HEIGHT = 12.0;
+
+// 显示文字
+const TEXT_MAIN = "Merry Christmas";
+const TEXT_SUB   = "To：陈婧欣天天开心";
+
+// 主标题颜色
+const MAIN_COLOR = "#FFD700";
+
+// 副标题配色：第 4～6 个字渐变，其余字统一颜色
+const SUB_GRAD_START = 3;
+const SUB_GRAD_END   = 6;
+const SUB_GRADIENT_FROM = "#FFC0CB";
+const SUB_GRADIENT_TO   = "#FF1493";
+const SUB_REST_COLOR    = "#FFFFFF";
+
+// 字号上限/下限（随屏宽自适应）：想整体更大或更小，改这两个值
+const FONT_MAX = 45;
+const FONT_MIN = 22;
+
+const TAU = Math.PI * 2;
+
+// ================== 画布尺寸（跟随手机屏幕） ==================
+const canvas = document.getElementById("stage");
+const ctx = canvas.getContext("2d");
+let W = window.innerWidth;
+let H = window.innerHeight;
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width  = W + "px";
+  canvas.style.height = H + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener("resize", resize);
+resize();
+
+// 自适应字号：屏宽的 6%，夹在 [FONT_MIN, FONT_MAX] 之间
+function fontSize() {
+  return Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(W * 0.06)));
+}
+
+// ================== 随机工具 ==================
+function uniform(a, b) { return a + Math.random() * (b - a); }
+function randInt(a, b) { return Math.floor(a + Math.random() * (b - a + 1)); }
+function choice(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+let gaussSpare = null;
+function gauss(mu, sigma) {
+  if (gaussSpare !== null) {
+    const v = gaussSpare; gaussSpare = null;
+    return mu + sigma * v;
+  }
+  let u = 0; while (u === 0) u = Math.random();
+  const v = Math.random();
+  const mag = Math.sqrt(-2 * Math.log(u));
+  gaussSpare = mag * Math.sin(TAU * v);
+  return mu + sigma * mag * Math.cos(TAU * v);
+}
+
+// ================== 生成圣诞树 ==================
+function genTreePoints() {
+  const pts = [];
+  const loops = 9;
+  const spiralN = Math.floor(TREE_POINTS * 0.7);
+
+  for (let i = 0; i < spiralN; i++) {
+    const u = Math.random();
+    const h = Math.pow(u, 1.6);
+    const y = TREE_HEIGHT * h + 0.2;
+
+    let baseR = Math.pow(1 - h, 1.1) * 3.2;
+    const branchWave = Math.max(0, Math.sin((h * 5.8 + 0.15) * TAU));
+    const branchFactor = 1.0 + 0.65 * branchWave;
+    baseR *= branchFactor;
+
+    const t = u * loops * TAU;
+    const angle = t + uniform(-0.22, 0.22);
+    const r = baseR * uniform(0.85, 1.08);
+    const x = Math.cos(angle) * r;
+    const z = Math.sin(angle) * r;
+
+    const midBoost = Math.max(0.15, 1.0 - Math.abs(h - 0.55) * 1.5);
+    const baseG = 155 + Math.floor(90 * midBoost);
+    const baseB = 185 + Math.floor(70 * midBoost);
+    let color = [
+      255,
+      clamp(baseG + randInt(-15, 20), 0, 255),
+      clamp(baseB + randInt(-15, 35), 0, 255)
+    ];
+
+    if (Math.random() < 0.08) {
+      color = [255, 255 - randInt(0, 35), 230 + randInt(0, 25)];
+    }
+    pts.push([x, y, z, color]);
+  }
+
+  const fillN = TREE_POINTS - spiralN;
+  for (let i = 0; i < fillN; i++) {
+    const h = Math.pow(Math.random(), 1.9);
+    const y = TREE_HEIGHT * h + 0.2 + uniform(-0.08, 0.08);
+    let baseR = Math.pow(1 - h, 1.1) * 4.3;
+    const branchWave = Math.max(0, Math.sin((h * 5.8 + 0.15) * TAU));
+    const branchFactor = 1.0 + 0.65 * branchWave;
+    baseR *= branchFactor;
+
+    const r = baseR * Math.sqrt(Math.random());
+    const angle = Math.random() * TAU;
+    const x = Math.cos(angle) * r + uniform(-0.08, 0.08);
+    const z = Math.sin(angle) * r + uniform(-0.08, 0.08);
+    const g = randInt(165, 225);
+    const b = randInt(190, 250);
+    pts.push([x, y, z, [255, g, b]]);
+  }
+  return pts;
+}
+
+// ================== 地面光环 ==================
+function genGroundPoints() {
+  const pts = [];
+  const rings = [4.6, 6.0, 7.4, 8.8, 10.2, 11.4];
+  for (let i = 0; i < GROUND_POINTS; i++) {
+    const ring = choice(rings);
+    const r = gauss(ring, 0.3);
+    const theta = Math.random() * TAU;
+    const x = Math.cos(theta) * r;
+    const z = Math.sin(theta) * r;
+    const y = -0.25;
+    const c = Math.random() < 0.15 ? randInt(235, 255) : randInt(190, 235);
+    pts.push([x, y, z, [c, c, 255]]);
+  }
+  return pts;
+}
+
+// ================== 空中星点 ==================
+function genStarPoints() {
+  const pts = [];
+  for (let i = 0; i < STAR_POINTS; i++) {
+    const x = uniform(-18.0, 18.0);
+    const z = uniform(-18.0, 18.0);
+    const y = uniform(3.0, 18.0);
+    const base = randInt(215, 255);
+    pts.push([x, y, z, [base, base, 255]]);
+  }
+  return pts;
+}
+
+// ================== 树顶爱心 ==================
+function genHeartPoints() {
+  const pts = [];
+  const scale = 0.9;
+  const topY = TREE_HEIGHT + 0.05;
+  while (pts.length < HEART_POINTS) {
+    const x = uniform(-1.3, 1.3);
+    const y = uniform(-1.4, 1.4);
+    const f = Math.pow(x * x + y * y - 1.0, 3) - x * x * Math.pow(y, 3);
+    if (f <= 0.0) {
+      const wx = x * scale * 0.8;
+      const wy = topY + (y + 1.0) * scale * 0.5;
+      const wz = uniform(-0.18, 0.18);
+      const dist = Math.hypot(x, y);
+      const factor = Math.max(0.35, 1.15 - 0.5 * dist);
+      let g = Math.floor(130 * factor + 80);
+      let b = Math.floor(190 * factor + 70);
+      g = clamp(g, 120, 255);
+      b = clamp(b, 120, 255);
+      pts.push([wx, wy, wz, [255, g, b]]);
+    }
+  }
+  return pts;
+}
+
+// ================== 前景雪花 ==================
+function makeFlake() {
+  const x = uniform(0, W);
+  const y = uniform(-80, -10);
+  const radius = uniform(10.0, 16.0);
+  const speed = uniform(30.0, 45.0);
+  const travel = H + 80 - y;
+  const life = travel / speed;
+  return { x, y, radius, speed, life, maxLife: life };
+}
+
+function initSnow2D() {
+  const flakes = [];
+  for (let i = 0; i < SNOW2D_POINTS; i++) flakes.push(makeFlake());
+  return flakes;
+}
+
+function updateSnow2D(flakes, dt) {
+  for (const f of flakes) {
+    f.y += f.speed * dt;
+    f.life -= dt;
+    if (f.life <= 0 || f.y > H + 50) {
+      const n = makeFlake();
+      f.x = n.x; f.y = n.y; f.radius = n.radius;
+      f.speed = n.speed; f.life = n.life; f.maxLife = n.maxLife;
+    }
+  }
+}
+
+function drawSnow2D(ctx, flakes) {
+  for (const f of flakes) {
+    if (f.maxLife <= 0) continue;
+    const phase = f.life / f.maxLife;
+    let alpha = phase > 0.3 ? 255 : Math.floor(255 * (phase / 0.3));
+    alpha = clamp(alpha, 0, 255);
+
+    const cx = Math.floor(f.x);
+    const cy = Math.floor(f.y);
+    const r1 = Math.max(1, Math.floor(f.radius * 1.3));
+    const r2 = Math.max(1, Math.floor(f.radius * 1.0));
+    const r3 = Math.max(1, Math.floor(f.radius * 0.75));
+    const r4 = Math.max(1, Math.floor(f.radius * 0.55));
+    const r5 = Math.max(1, Math.floor(f.radius * 0.45));
+    const a1 = Math.floor(alpha / 20);
+    const a2 = Math.floor(alpha / 12);
+    const a3 = Math.floor(alpha / 6);
+    const a4 = Math.floor(alpha / 3);
+    const a5 = alpha;
+
+    if (a1 > 0) { ctx.fillStyle = `rgba(255,255,255,${a1 / 255})`; ctx.beginPath(); ctx.arc(cx, cy, r1, 0, TAU); ctx.fill(); }
+    if (a2 > 0) { ctx.fillStyle = `rgba(255,255,255,${a2 / 255})`; ctx.beginPath(); ctx.arc(cx, cy, r2, 0, TAU); ctx.fill(); }
+    if (a3 > 0) { ctx.fillStyle = `rgba(255,255,255,${a3 / 255})`; ctx.beginPath(); ctx.arc(cx, cy, r3, 0, TAU); ctx.fill(); }
+    if (a4 > 0) { ctx.fillStyle = `rgba(255,255,255,${a4 / 255})`; ctx.beginPath(); ctx.arc(cx, cy, r4, 0, TAU); ctx.fill(); }
+    if (a5 > 0) { ctx.fillStyle = `rgba(255,255,255,${a5 / 255})`; ctx.beginPath(); ctx.arc(cx, cy, r5, 0, TAU); ctx.fill(); }
+  }
+}
+
+// ================== 副标题：第 4～6 字渐变，其余纯色 ==================
+function drawSubtitle(ctx, text, x, y, size) {
+  const chars = text.split("");
+  if (chars.length === 0) return;
+
+  const widths = chars.map(ch => ctx.measureText(ch).width);
+
+  let prefixWidth = 0;
+  for (let i = 0; i < SUB_GRAD_START && i < chars.length; i++) prefixWidth += widths[i];
+  let gradWidth = 0;
+  for (let i = SUB_GRAD_START; i < SUB_GRAD_END && i < chars.length; i++) gradWidth += widths[i];
+
+  const grad = ctx.createLinearGradient(x + prefixWidth, 0, x + prefixWidth + gradWidth, 0);
+  grad.addColorStop(0, SUB_GRADIENT_FROM);
+  grad.addColorStop(1, SUB_GRADIENT_TO);
+
+  let curX = x;
+  for (let i = 0; i < chars.length; i++) {
+    const inGrad = i >= SUB_GRAD_START && i < SUB_GRAD_END;
+    ctx.fillStyle = inGrad ? grad : SUB_REST_COLOR;
+    ctx.fillText(chars[i], curX, y);
+    curX += widths[i];
+  }
+}
+
+// ================== 3D -> 2D 投影 ==================
+function projectPoint(x, y, z, angle) {
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+  const xz = x * cosA - z * sinA;
+  const zz = x * sinA + z * cosA;
+
+  const cosP = Math.cos(PITCH);
+  const sinP = Math.sin(PITCH);
+  let yp = y * cosP - zz * sinP;
+  let zp = y * sinP + zz * cosP;
+
+  zp = zp + CAM_DIST;
+  yp = yp - CAM_HEIGHT;
+
+  if (zp <= 0.1) return null;
+  const f = (H * 0.63) / zp;
+  const sx = Math.floor(W / 2 + xz * f);
+  const sy = Math.floor(H / 2 - yp * f);
+  return { sx, sy, depth: zp };
+}
+
+// ================== 主循环 ==================
+const tree   = genTreePoints();
+const ground = genGroundPoints();
+const stars  = genStarPoints();
+const heart  = genHeartPoints();
+const allPoints = tree.concat(ground, stars, heart);
+const snow2D = initSnow2D();
+
+let angle = 0.0;
+let lastTime = performance.now();
+
+function frame(now) {
+  const dtMs = now - lastTime;
+  lastTime = now;
+  const dt = dtMs / 1000.0;
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+
+  updateSnow2D(snow2D, dt);
+
+  const drawList = [];
+  for (const p of allPoints) {
+    const proj = projectPoint(p[0], p[1], p[2], angle);
+    if (proj) {
+      const depth = proj.depth;
+      const size = Math.max(1, Math.floor(3.6 - depth * 0.13));
+      drawList.push({ depth, sx: proj.sx, sy: proj.sy, size, color: p[3] });
+    }
+  }
+
+  drawList.sort((a, b) => b.depth - a.depth);
+  for (const d of drawList) {
+    if (d.sx >= 0 && d.sx < W && d.sy >= 0 && d.sy < H) {
+      ctx.fillStyle = `rgb(${d.color[0]},${d.color[1]},${d.color[2]})`;
+      ctx.beginPath();
+      ctx.arc(d.sx, d.sy, d.size, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  // 文字（字号随屏宽自适应）
+  const fs = fontSize();
+  const textX = Math.max(16, Math.round(W * 0.06));
+  ctx.font = `${fs}px "Monotype Corsiva", "Brush Script MT", "Segoe Script", cursive`;
+  ctx.textBaseline = "top";
+
+  ctx.fillStyle = MAIN_COLOR;
+  ctx.fillText(TEXT_MAIN, textX, Math.floor(H / 3));
+
+  drawSubtitle(ctx, TEXT_SUB, textX, Math.floor(H / 3) + fs + 10, fs);
+
+  drawSnow2D(ctx, snow2D);
+
+  angle += 0.0045 * dt * 60;
+
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
