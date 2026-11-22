@@ -29,7 +29,6 @@
  * ========================================================================= */
 
 // ================== 全局参数 ==================
-// 粒子数量倍率：想更密改成 1.0
 const SCALE = 0.5;
 const TREE_POINTS   = Math.round(50000 * SCALE);
 const GROUND_POINTS = Math.round(4000  * SCALE);
@@ -37,7 +36,6 @@ const STAR_POINTS   = Math.round(1200  * SCALE);
 const HEART_POINTS  = Math.round(1000  * SCALE);
 const SNOW2D_POINTS = 10;
 
-// 相机参数 —— 俯视视角
 const CAM_DIST    = 13;
 const CAM_HEIGHT  = 6.0;
 const PITCH       = -0.25;
@@ -50,16 +48,22 @@ const TEXT_SUB   = "To：陈婧欣天天开心";
 // 主标题颜色
 const MAIN_COLOR = "#FFD700";
 
-// 副标题配色：第 4～6 个字渐变，其余字统一颜色
-const SUB_GRAD_START = 3;
-const SUB_GRAD_END   = 6;
-const SUB_GRADIENT_FROM = "#FFC0CB";
-const SUB_GRADIENT_TO   = "#FF1493";
-const SUB_REST_COLOR    = "#FFFFFF";
+// 副标题分段配色（0 基索引，含起点、不含终点）
+const SUB_WHITE_END    = 3;
+const SUB_PINK_END     = 6;
+const SUB_GRAD_START   = 6;
+const SUB_GRAD_END     = 10;
+const SUB_WHITE_COLOR  = "#FFFFFF";
+const SUB_PINK_COLOR   = "#FF6699";
+const SUB_GRADIENT_FROM = "#FF4D4D";
+const SUB_GRADIENT_TO   = "#FFD700";
 
-// 字号上限/下限（随屏宽自适应）：想整体更大或更小，改这两个值
 const FONT_MAX = 45;
 const FONT_MIN = 22;
+const SUB_FONT_SCALE = 0.75; // 副标题字号 = 主标题 × 该比例
+
+// 文字纵向偏移：负值向上移，正值向下移
+const TEXT_OFFSET_Y = -60;
 
 const TAU = Math.PI * 2;
 
@@ -82,7 +86,6 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// 自适应字号：屏宽的 6%，夹在 [FONT_MIN, FONT_MAX] 之间
 function fontSize() {
   return Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(W * 0.06)));
 }
@@ -275,13 +278,16 @@ function drawSnow2D(ctx, flakes) {
   }
 }
 
-// ================== 副标题：第 4～6 字渐变，其余纯色 ==================
+// ================== 副标题：白 / 玫瑰粉 / 渐变 三段配色 ==================
 function drawSubtitle(ctx, text, x, y, size) {
   const chars = text.split("");
   if (chars.length === 0) return;
 
+  ctx.font = `${size}px "Monotype Corsiva", "Brush Script MT", "Segoe Script", cursive`;
+
   const widths = chars.map(ch => ctx.measureText(ch).width);
 
+  // 渐变区间之前的累计宽度（渐变起点位置）
   let prefixWidth = 0;
   for (let i = 0; i < SUB_GRAD_START && i < chars.length; i++) prefixWidth += widths[i];
   let gradWidth = 0;
@@ -293,8 +299,13 @@ function drawSubtitle(ctx, text, x, y, size) {
 
   let curX = x;
   for (let i = 0; i < chars.length; i++) {
-    const inGrad = i >= SUB_GRAD_START && i < SUB_GRAD_END;
-    ctx.fillStyle = inGrad ? grad : SUB_REST_COLOR;
+    if (i < SUB_WHITE_END) {
+      ctx.fillStyle = SUB_WHITE_COLOR;
+    } else if (i < SUB_PINK_END) {
+      ctx.fillStyle = SUB_PINK_COLOR;
+    } else {
+      ctx.fillStyle = grad;
+    }
     ctx.fillText(chars[i], curX, y);
     curX += widths[i];
   }
@@ -363,16 +374,18 @@ function frame(now) {
     }
   }
 
-  // 文字（字号随屏宽自适应）
+  // 文字：主标题正常字号，副标题按比例缩小
   const fs = fontSize();
+  const subFs = Math.max(14, Math.round(fs * SUB_FONT_SCALE));
   const textX = Math.max(16, Math.round(W * 0.06));
-  ctx.font = `${fs}px "Monotype Corsiva", "Brush Script MT", "Segoe Script", cursive`;
+  const textY = Math.floor(H / 3) + TEXT_OFFSET_Y;
+
   ctx.textBaseline = "top";
-
+  ctx.font = `${fs}px "Monotype Corsiva", "Brush Script MT", "Segoe Script", cursive`;
   ctx.fillStyle = MAIN_COLOR;
-  ctx.fillText(TEXT_MAIN, textX, Math.floor(H / 3));
+  ctx.fillText(TEXT_MAIN, textX, textY);
 
-  drawSubtitle(ctx, TEXT_SUB, textX, Math.floor(H / 3) + fs + 10, fs);
+  drawSubtitle(ctx, TEXT_SUB, textX, textY + fs + 10, subFs);
 
   drawSnow2D(ctx, snow2D);
 
